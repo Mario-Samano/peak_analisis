@@ -21,7 +21,7 @@ def cargar_genoma(): #----------------------------------------------------------
         1: Si el archivo no existe o está vacío.
     """
      
-    with open('genoma_ecoli.fna', 'r') as f:
+    with open('E_coli_K12_MG1655_U00096.3.txt', 'r') as f:
         genoma = ''.join(linea.strip() for linea in f if linea.strip() and not linea.startswith('>'))
     
     if not genoma:
