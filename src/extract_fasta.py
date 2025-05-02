@@ -104,7 +104,7 @@ def guardar_secuencias(secuencias):
     Guarda todas las secuencias en results/secuencias.fasta
     Es decir, redirecciona el archivo de salida u "output file" al directorio results 
     """
-    archivo_salida = "results/secuencias.fasta"
+    archivo_salida = "../results/secuencias.fasta"
     
     # Crear el archivo directamente (asume que la carpeta results existe)
     with open(archivo_salida, 'w') as f:
