@@ -1,131 +1,158 @@
 """
-Script para extraer los picos de unión o "Union Peaks" del genoma de E. Coli.
+Script para extraer los picos de unión o "Union Peaks" del genoma de E. Coli,
+generando UN archivo FASTA por cada TF.
+
 Inputs:
 - genoma_ecoli.fna : Genoma de referencia en formato FASTA
 - union_peaks_file.tsv : Coordenadas de picos (cols: TF_name, Peak_start, Peak_end)
 
 Output:
-- results/secuencias.fasta : Secuencias extraídas (requiere carpeta preexistente) 
-:)
+- Para cada TF, un archivo FASTA:
+    <outdir>/<TF_name>_peaks.fasta
 """
 
-def cargar_genoma(): #----------------------------------------------------------- Carga el genoma desde genoma_ecoli.fna
-    
+import os
+import sys
+import argparse
+
+def parse_args():  # ---------------------------------------------------------- Define y procesa los parámetros de entrada del script
+    """
+    Define y parsea los argumentos de línea de comando.
+
+    Returns:
+        argparse.Namespace: Objeto con atributos genome, peaks y outdir.
+    """
+    parser = argparse.ArgumentParser(
+        description="Extrae los picos de unión por TF y genera FASTA separados"
+    )
+    parser.add_argument(
+        '--genome', required=True,
+        help="Ruta al FASTA del genoma (ej: genoma_ecoli.fna)"
+    )
+    parser.add_argument(
+        '--peaks', required=True,
+        help="TSV con columnas TF_name, Peak_start, Peak_end (ej: union_peaks_file.tsv)"
+    )
+    parser.add_argument(
+        '--outdir', required=True,
+        help="Directorio donde se escribirán los FASTA por TF (se crea si no existe)"
+    )
+    return parser.parse_args()
+
+
+def cargar_genoma(path):  # --------------------------------------------------- Carga y concatena el genoma completo desde un archivo FASTA.
     """
     Carga y concatena el genoma completo desde un archivo FASTA.
-    
+
+    Args:
+        path (str): Ruta al archivo FASTA de genoma.
+
     Returns:
-        str: Cadena con la secuencia completa del genoma sin cabeceras.
-    
+        str: Secuencia completa del genoma (sin líneas de cabecera).
+
     Exits:
-        1: Si el archivo no existe o está vacío.
+        1: Si el archivo no existe o la secuencia resultante está vacía.
     """
-     
-    with open('E_coli_K12_MG1655_U00096.3.txt', 'r') as f:
-        genoma = ''.join(linea.strip() for linea in f if linea.strip() and not linea.startswith('>'))
-    
+    if not os.path.isfile(path):
+        sys.exit(f"ERROR: No existe el archivo de genoma: {path}")
+
+    with open(path, 'r') as f:
+        genoma = ''.join(
+            linea.strip() for linea in f
+            if linea.strip() and not linea.startswith('>')
+        )
+
     if not genoma:
-        print("ERROR: El archivo genoma_ecoli.fna está vacío, intentalo con otro archivo :(")
-        exit(1)
-        
-    print(f"Genoma cargado (longitud: {len(genoma)} bases)")
+        sys.exit("ERROR: El FASTA de genoma está vacío, inténtalo con otro archivo :(")
+
+    print(f"✔ Genoma cargado (longitud: {len(genoma)} bases)")
     return genoma
 
-def leer_picos(): #----------------------------------------------------------- Lee el archivo TSV con los picos de union (las "coordenadas")
-    """
-    Procesa un archivo TSV con coordenadas de picos de ChIP-seq.
-    
-    Returns:
-        list: Lista de tuplas con (nombre_TF, inicio, fin) para cada pico.
-    
-    Exits:
-        1: Si el archivo no existe, tiene formato incorrecto o contiene datos inválidos.
-    """
-     
-    with open('union_peaks_file.tsv', 'r') as f:
 
-        next(f)
-        lineas = [linea.strip() for linea in f if linea.strip()]
-    
-    picos = []
-    for num_linea, linea in enumerate(lineas, 2):
-        partes = linea.split('\t')
-        
-        if len(partes) < 1:
-            print(f"ERROR Línea: {num_linea}")
-            exit(1)
-            
-        tf_name = partes[0]
-        start = int(float(partes[3]))
-        end = int(float(partes[5]))
-        picos.append((tf_name, start, end))
-    
-    if not picos:
-        print("ERROR: No se encontraron picos válidos")
-        exit(1)
-        
-    print(f"{len(picos)} picos encontrados :D")
-    return picos
-
-def extraer_secuencias(picos, genoma): #------------------------------------------------------------ Extrae secuencias del genoma
+def leer_picos(path):  # ------------------------------------------------------ Procesamiento del archivo con lñas coordenadas de los picos 
     """
-    Extrae fragmentos genómicos basados en coordenadas de picos.
-    
+    Procesa un archivo TSV con coordenadas de picos
+
     Args:
-        picos (list): Lista de tuplas (nombre_TF, inicio, fin).
-        genoma (str): Secuencia genómica completa.
-    
+        path (str): Ruta al TSV con picos (TF_name, Peak_start, Peak_end).
+
     Returns:
-        list: Lista de tuplas con (nombre_TF, secuencia_extraída).
-    
+        dict: Mapa {nombre_TF: [(start, end), ...]}.
+
     Exits:
-        1: Si las coordenadas son inválidas (fuera de rango o inicio >= fin).
+        1: Si el archivo no existe, mal formato o coordenadas inválidas.
     """
+    if not os.path.isfile(path):
+        sys.exit(f"ERROR: No existe el archivo de picos: {path}")
 
-    secuencias = []
-    largo_genoma = len(genoma)
-    
-    for nombre, inicio, fin in picos:
-        if inicio < 0 or fin > largo_genoma:
-            print(f"ERROR: Coordenadas fuera de rango para {nombre}")
-            exit(1)
-            
-        if inicio >= fin: # <--------- Solo por si acaso jaja 
-            print(f"ERROR: Inicio debe ser menor que fin para {nombre}")
-            exit(1)
-            
-        secuencias.append((nombre, genoma[inicio:fin]))
-    
-    print(f"{len(secuencias)} secuencias extraídas")
-    return secuencias
+    peaks_by_tf = {}
+    with open(path, 'r') as f:
+        next(f)  # Salta cabecera
+        for num_linea, linea in enumerate(f, start=2):
+            partes = linea.strip().split('\t')
+            if len(partes) < 3:
+                sys.exit(f"ERROR: Línea {num_linea} mal formateada (menos de 3 columnas).")
 
-def guardar_secuencias(secuencias):
+            tf_name = partes[0]
+            try:
+                start = int(float(partes[1]))
+                end = int(float(partes[2]))
+            except ValueError:
+                sys.exit(f"ERROR: Coordenadas inválidas en línea {num_linea}.")
+
+            # Validación de coordenadas
+            if start < 0 or end <= start:
+                sys.exit(f"ERROR: Coordenadas fuera de rango o inicio>=fin en línea {num_linea}.")
+
+            peaks_by_tf.setdefault(tf_name, []).append((start, end))
+
+    if not peaks_by_tf:
+        sys.exit("ERROR: No se encontraron picos válidos")
+
+    total = sum(len(v) for v in peaks_by_tf.values())
+    print(f"✔ {total} picos encontrados para {len(peaks_by_tf)} TF(s)")
+    return peaks_by_tf
+
+
+def extraer_y_guardar(genoma, peaks_by_tf, outdir):  # -------------------------- Extraccion de los picos 
     """
-    Guarda todas las secuencias en results/secuencias.fasta
-    Es decir, redirecciona el archivo de salida u "output file" al directorio results 
-    """
-    archivo_salida = "../results/secuencias.fasta"
-    
-    # Crear el archivo directamente (asume que la carpeta results existe)
-    with open(archivo_salida, 'w') as f:
-        for i, (nombre, secuencia) in enumerate(secuencias, 1):
-            f.write(f">{nombre}_pico_{i}\n{secuencia}\n")
-    
-    print(f"Archivo creado: {archivo_salida}")
+    Extrae fragmentos genómicos según coordenadas y guarda FASTA por TF.
 
-def main():
-    print("\n=== Extracción de Secuencias FASTA :D ===")
-    print("Asegúrate de tener:")
-    print("1. El archivo genoma_ecoli.fna")
-    print("2. El archivo union_peaks_file.tsv")
-    print("3. Una carpeta 'results' creada manualmente\n")
-    
-    genoma = cargar_genoma()
-    picos = leer_picos()
-    secuencias = extraer_secuencias(picos, genoma)
-    
-    guardar_secuencias(secuencias)
-    print("\nProceso completado")
+    Args:
+        genoma (str): Secuencia completa del genoma.
+        peaks_by_tf (dict): Mapa {TF: [(start,end), ...]}.
+        outdir (str): Carpeta donde escribir los archivos FASTA.
+    """
+    # Crear carpeta de salida si no existe
+    os.makedirs(outdir, exist_ok=True)
+
+    for tf_name, intervals in peaks_by_tf.items():
+        archivo_fasta = os.path.join(outdir, f"{tf_name}_peaks.fasta")
+        with open(archivo_fasta, 'w') as out:
+            for idx, (start, end) in enumerate(intervals, 1):
+                seq = genoma[start:end]
+                out.write(f">{tf_name}_pico_{idx}_{start}_{end}\n{seq}\n")
+        print(f"  • {len(intervals)} secuencias para {tf_name} → {archivo_fasta}")
+
+    print("\n✔ ¡Archivos FASTA generados para cada TF!")
+
+
+def main():  # --------------------------------------------------------------- Flujo
+    """
+    Flujo principal:
+      1. Parsear argumentos
+      2. Cargar genoma
+      3. Leer picos
+      4. Extraer y guardar secuencias
+    """
+    args = parse_args()
+
+    print("\n=== Extracción de Secuencias FASTA por TF :D ===")
+    print("Asegúrate de tener tus archivos y la carpeta de salida configurada")
+
+    genoma = cargar_genoma(args.genome)
+    peaks_by_tf = leer_picos(args.peaks)
+    extraer_y_guardar(genoma, peaks_by_tf, args.outdir)
 
 if __name__ == "__main__":
     main()
